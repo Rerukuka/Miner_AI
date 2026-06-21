@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="popup.css" />
+  <title>BTC AI WORK — Miner</title>
+</head>
+<body>
+  <header class="head">
+    <div class="logo" aria-hidden="true">₿</div>
+    <div class="head-text">
+      <h1>BTC AI WORK</h1>
+      <span class="sub">Pool Miner · работает в фоне</span>
+    </div>
+  </header>
+
+  <div id="status" class="status status-idle">остановлено</div>
+
+  <section class="controls">
+    <label class="field">
+      <span class="field-label">Кошелёк (адрес для выплат)</span>
+      <input id="worker" type="text" autocomplete="off" spellcheck="false" placeholder="bc1q… или account.worker" />
+    </label>
+
+    <div class="row2">
+      <label class="field">
+        <span class="field-label">Пароль</span>
+        <input id="password" type="text" autocomplete="off" spellcheck="false" value="x" />
+      </label>
+      <div></div>
+    </div>
+
+    <div id="bridge-fields" style="display:none">
+      <label class="field">
+        <span class="field-label">Пул (host:port)</span>
+        <input id="pool-addr" type="text" autocomplete="off" spellcheck="false" value="185.240.242.60:4333" />
+      </label>
+    </div>
+
+    <div id="direct-fields">
+      <label class="field">
+        <span class="field-label">WebSocket-URL пула (wss://)</span>
+        <input id="direct-url" type="text" autocomplete="off" spellcheck="false" value="wss://mine.btcaiwork.com" />
+      </label>
+    </div>
+
+    <details class="adv">
+      <summary>Дополнительно</summary>
+      <div class="adv-body">
+        <label class="field">
+          <span class="field-label">Способ подключения</span>
+          <select id="mode">
+            <option value="direct" selected>Прямой WebSocket (wss://)</option>
+            <option value="bridge">Через мост (пул по TCP)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Адрес моста</span>
+          <input id="bridge-url" type="text" autocomplete="off" spellcheck="false" value="ws://127.0.0.1:8715" />
+        </label>
+        <label class="field">
+          <span class="field-label">prevhash (если доли отклоняются — переключи)</span>
+          <select id="prevhash-mode">
+            <option value="wordswap" selected>wordswap</option>
+            <option value="reverse">reverse</option>
+            <option value="asis">as-is</option>
+          </select>
+        </label>
+      </div>
+    </details>
+
+    <button id="toggle" class="btn" type="button">▶ Подключиться и майнить</button>
+  </section>
+
+  <section class="stats">
+    <div class="hashrate">
+      <div id="hashrate" class="hashrate-value">0 H/s</div>
+      <div class="hashrate-label">хешрейт</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div id="accepted" class="stat-value ok">0</div><div class="stat-label">принято</div></div>
+      <div class="stat"><div id="rejected" class="stat-value bad">0</div><div class="stat-label">отклонено</div></div>
+      <div class="stat"><div id="difficulty" class="stat-value">—</div><div class="stat-label">сложность</div></div>
+    </div>
+  </section>
+
+  <section class="logwrap">
+    <div class="section-label">Stratum-лог</div>
+    <ul id="log" class="log" aria-live="polite"></ul>
+  </section>
+
+  <footer class="foot">
+    Майнит в фоне, пока открыт Chrome — окно можно закрыть. На обычном железе доход по BTC ≈ 0 (физика SHA-256).
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
