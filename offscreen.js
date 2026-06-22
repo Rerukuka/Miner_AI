@@ -3,7 +3,7 @@
 // worker. Reports status/hashrate/log to the service worker via messages.
 const SC = self.StratumCore;
 
-let ws = null, worker = null, running = false, msgId = 0;
+let ws = null, workers = [], running = false, msgId = 0;
 const pending = {};
 let extranonce1 = '', extranonce2Size = 4, extranonce2Counter = 0, difficulty = 1;
 const jobCtx = {};
@@ -16,6 +16,10 @@ let cfg = null;
 let lastHps = 0;
 let lastTotalHashes = 0;
 let telemetryTimer = null;
+let currentJobMessage = null;
+let workerRates = {};
+let workerTotals = {};
+let lastTelemetryHashrateSent = 0;
 
 function ui(data) { chrome.runtime.sendMessage({ target: 'ui', type: 'state', data }); }
 function logLine(line, kind) { chrome.runtime.sendMessage({ target: 'ui', type: 'log', line, kind: kind || 'info' }); }
@@ -51,6 +55,7 @@ function sendTelemetry(reason) {
       accepted,
       rejected,
       total_hashes: lastTotalHashes,
+      threads: workers.length || 1,
       difficulty,
       status: running ? 'mining' : 'stopped',
       reason: reason || 'timer',
@@ -69,6 +74,77 @@ function stopTelemetryTimer() {
   telemetryTimer = null;
 }
 // BTCAI_PLUGIN_TELEMETRY_HELPERS_V1_END
+
+
+// BTCAI_MULTI_WORKER_FAST_MODE_V1
+function getMiningThreadCount() {
+  const cores = Number(navigator.hardwareConcurrency || 2);
+  // Browser mining should stay responsive, so use most cores but leave one for UI/Chrome.
+  return Math.max(1, Math.min(8, Math.max(1, cores - 1)));
+}
+
+function terminateWorkers() {
+  for (const w of workers) {
+    try { w.postMessage({ type: 'stop' }); } catch (_) {}
+    try { w.terminate(); } catch (_) {}
+  }
+  workers = [];
+  workerRates = {};
+  workerTotals = {};
+}
+
+function updateAggregatedHashrate(reason) {
+  let hps = 0;
+  let total = 0;
+  for (const v of Object.values(workerRates)) hps += Number(v || 0);
+  for (const v of Object.values(workerTotals)) total += Number(v || 0);
+
+  lastHps = hps;
+  lastTotalHashes = total;
+  ui({ hashrate: fmtHashrate(hps) + (workers.length > 1 ? ` (${workers.length} threads)` : '') });
+
+  const now = Date.now();
+  if (now - lastTelemetryHashrateSent >= 4000) {
+    lastTelemetryHashrateSent = now;
+    sendTelemetry(reason || 'hashrate');
+  }
+}
+
+function handleWorkerMessage(e) {
+  const m = e.data || {};
+  if (m.type === 'hashrate') {
+    const idx = Number(m.workerIndex || 0);
+    workerRates[idx] = Number(m.hps || 0);
+    workerTotals[idx] = Number(m.totalHashes || 0);
+    updateAggregatedHashrate('hashrate');
+  } else if (m.type === 'share') {
+    submitShare(m);
+  } else if (m.type === 'exhausted') {
+    logLine('nonce range wrapped, waiting for new job', 'info');
+  }
+}
+
+function startWorkers() {
+  terminateWorkers();
+  const n = getMiningThreadCount();
+  for (let i = 0; i < n; i++) {
+    const w = new Worker('stratum-worker.js');
+    w.onmessage = handleWorkerMessage;
+    workers.push(w);
+  }
+  logLine('fast mode: started ' + n + ' mining threads', 'ok');
+  if (currentJobMessage) postJobToWorkers(currentJobMessage);
+}
+
+function postJobToWorkers(jobMessage) {
+  currentJobMessage = jobMessage;
+  if (!workers.length) startWorkers();
+  const n = workers.length || 1;
+  workers.forEach((w, i) => {
+    try { w.postMessage({ ...jobMessage, workerIndex: i, workerCount: n }); } catch (_) {}
+  });
+}
+// BTCAI_MULTI_WORKER_FAST_MODE_V1_END
 
 function send(method, params) {
   const id = ++msgId;
@@ -101,7 +177,7 @@ function handleNotify(params) {
   while (jobOrder.length > 6) delete jobCtx[jobOrder.shift()];
 
   logLine('job ' + jobId + ' (diff ' + difficulty + ')', 'info');
-  if (worker) worker.postMessage({ type: 'job', jobId, prefixHex, targetHex: SC.difficultyToTargetHexBE(difficulty) });
+  postJobToWorkers({ type: 'job', jobId, prefixHex, targetHex: SC.difficultyToTargetHexBE(difficulty) });
 }
 
 function submitShare(share) {
@@ -152,6 +228,7 @@ function startMining(config) {
   stopMining();
   cfg = config;
   accepted = 0; rejected = 0; difficulty = 1; extranonce1 = ''; extranonce2Counter = 0; stratumStarted = false;
+  currentJobMessage = null; workerRates = {}; workerTotals = {}; lastHps = 0; lastTotalHashes = 0; lastTelemetryHashrateSent = 0;
   for (const k in jobCtx) delete jobCtx[k];
   jobOrder = [];
   ui({ status: 'connecting…', statusKind: 'connecting', hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—', running: true });
@@ -178,20 +255,14 @@ function startMining(config) {
   ws.onerror = () => { logLine('websocket error', 'err'); setStatus('connection error', 'err'); };
   ws.onclose = () => { if (running) { logLine('websocket closed', 'err'); setStatus('connection closed', 'err'); } };
 
-  worker = new Worker('stratum-worker.js');
-  worker.onmessage = (e) => {
-    const m = e.data || {};
-    if (m.type === 'hashrate') { lastHps = Number(m.hps || 0); lastTotalHashes = Number(m.totalHashes || lastTotalHashes || 0); ui({ hashrate: fmtHashrate(m.hps) }); sendTelemetry('hashrate'); }
-    else if (m.type === 'share') submitShare(m);
-    else if (m.type === 'exhausted') logLine('nonce wrapped, waiting for new job', 'info');
-  };
+  startWorkers();
 }
 
 function stopMining() {
   sendTelemetry('stop');
   stopTelemetryTimer();
   running = false; stratumStarted = false;
-  if (worker) { worker.terminate(); worker = null; }
+  terminateWorkers();
   if (ws) { try { ws.close(); } catch (_) {} ws = null; }
 }
 

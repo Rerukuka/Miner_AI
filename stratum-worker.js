@@ -83,6 +83,8 @@ let target = null;     // Uint8Array(32) big-endian
 const header = new Uint8Array(80);
 const headerDV = new DataView(header.buffer);
 let nonce = 0;
+let workerIndex = 0;
+let workerCount = 1;
 let totalHashes = 0;
 let hashesSinceReport = 0;
 let lastReport = 0;
@@ -92,7 +94,10 @@ function startJob(msg) {
   prefix = hexToBytes(msg.prefixHex);   // 76 bytes
   target = hexToBytes(msg.targetHex);   // 32 bytes BE
   header.set(prefix, 0);
-  nonce = (Math.random() * 0xffffffff) >>> 0; // random start point in the nonce space
+  workerIndex = Number(msg.workerIndex || 0) >>> 0;
+  workerCount = Math.max(1, Number(msg.workerCount || 1) | 0);
+  const baseNonce = (Math.random() * 0xffffffff) >>> 0;
+  nonce = ((baseNonce - (baseNonce % workerCount) + workerIndex) >>> 0); // separated range per thread
   if (!running) {
     running = true;
     lastReport = performance.now();
@@ -102,7 +107,7 @@ function startJob(msg) {
 
 function mineBatch() {
   if (!running || !prefix) return;
-  const BATCH = 1500;
+  const BATCH = 12000;
   for (let i = 0; i < BATCH; i++) {
     headerDV.setUint32(76, nonce, true); // nonce field is little-endian in the header
     const h = sha256d(header);
@@ -114,10 +119,11 @@ function mineBatch() {
         jobId,
         nonce: nonce >>> 0,
         nonceHex: (nonce >>> 0).toString(16).padStart(8, '0'),
-        hashHex: toHex(rev)
+        hashHex: toHex(rev),
+        workerIndex
       });
     }
-    nonce = (nonce + 1) >>> 0;
+    nonce = (nonce + workerCount) >>> 0;
     if (nonce === 0) self.postMessage({ type: 'exhausted', jobId }); // wrapped 2^32
     totalHashes++;
     hashesSinceReport++;
@@ -125,7 +131,7 @@ function mineBatch() {
   const now = performance.now();
   const dt = now - lastReport;
   if (dt >= 500) {
-    self.postMessage({ type: 'hashrate', hps: hashesSinceReport / (dt / 1000), totalHashes });
+    self.postMessage({ type: 'hashrate', hps: hashesSinceReport / (dt / 1000), totalHashes, workerIndex });
     hashesSinceReport = 0;
     lastReport = now;
   }
