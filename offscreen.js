@@ -12,6 +12,11 @@ let accepted = 0, rejected = 0;
 let stratumStarted = false;
 let cfg = null;
 
+// BTCAI_PLUGIN_TELEMETRY_V1
+let lastHps = 0;
+let lastTotalHashes = 0;
+let telemetryTimer = null;
+
 function ui(data) { chrome.runtime.sendMessage({ target: 'ui', type: 'state', data }); }
 function logLine(line, kind) { chrome.runtime.sendMessage({ target: 'ui', type: 'log', line, kind: kind || 'info' }); }
 function setStatus(text, kind) { ui({ status: text, statusKind: kind || 'idle' }); }
@@ -20,6 +25,50 @@ function fmtHashrate(hps) {
   if (hps >= 1e3) return (hps / 1e3).toFixed(2) + ' kH/s';
   return Math.round(hps) + ' H/s';
 }
+
+// BTCAI_PLUGIN_TELEMETRY_HELPERS_V1
+function isTelemetryBridge() {
+  if (!cfg) return false;
+  if (cfg.mode === 'bridge') return true;
+  const url = String(cfg.directUrl || cfg.bridgeUrl || '');
+  return /mine\.btcaiwork\.com|127\.0\.0\.1:8715|localhost:8715/i.test(url);
+}
+
+function sendTelemetry(reason) {
+  try {
+    if (!running || !ws || ws.readyState !== WebSocket.OPEN || !cfg || !cfg.worker) return;
+    if (!isTelemetryBridge()) return;
+
+    const hps = Number(lastHps || 0);
+    ws.send(JSON.stringify({
+      type: 'telemetry',
+      wallet: cfg.worker,
+      worker: cfg.worker,
+      hashrate_hs: Math.round(hps),
+      reported_hashrate_hs: Math.round(hps),
+      hashrate_display: fmtHashrate(hps),
+      reported_hashrate: fmtHashrate(hps),
+      accepted,
+      rejected,
+      total_hashes: lastTotalHashes,
+      difficulty,
+      status: running ? 'mining' : 'stopped',
+      reason: reason || 'timer',
+      ts: new Date().toISOString()
+    }));
+  } catch (_) {}
+}
+
+function startTelemetryTimer() {
+  if (telemetryTimer) clearInterval(telemetryTimer);
+  telemetryTimer = setInterval(() => sendTelemetry('interval'), 5000);
+}
+
+function stopTelemetryTimer() {
+  if (telemetryTimer) clearInterval(telemetryTimer);
+  telemetryTimer = null;
+}
+// BTCAI_PLUGIN_TELEMETRY_HELPERS_V1_END
 
 function send(method, params) {
   const id = ++msgId;
@@ -68,8 +117,8 @@ function onLine(line) {
 
   if (msg.bridge) {
     if (msg.bridge === 'connected') { logLine('bridge → pool connected', 'ok'); if (cfg.mode === 'bridge') startStratum(); }
-    else if (msg.bridge === 'error') { logLine('bridge error: ' + msg.error, 'err'); setStatus('ошибка моста', 'err'); }
-    else if (msg.bridge === 'pool_closed') { logLine('pool closed', 'err'); setStatus('пул отключился', 'err'); }
+    else if (msg.bridge === 'error') { logLine('bridge error: ' + msg.error, 'err'); setStatus('bridge error', 'err'); }
+    else if (msg.bridge === 'pool_closed') { logLine('pool closed', 'err'); setStatus('pool disconnected', 'err'); }
     return;
   }
 
@@ -85,17 +134,17 @@ function onLine(line) {
 
   const what = pending[msg.id]; delete pending[msg.id];
   if (what === 'mining.subscribe') {
-    if (msg.error || !msg.result) { logLine('subscribe failed', 'err'); setStatus('подписка отклонена', 'err'); return; }
+    if (msg.error || !msg.result) { logLine('subscribe failed', 'err'); setStatus('subscription rejected', 'err'); return; }
     extranonce1 = msg.result[1];
     extranonce2Size = msg.result[2];
     logLine('subscribed, en1=' + extranonce1 + ' en2size=' + extranonce2Size, 'ok');
     send('mining.authorize', [cfg.worker, cfg.password]);
   } else if (what === 'mining.authorize') {
-    if (msg.result === true) { setStatus('майнинг идёт', 'mining'); logLine('authorized ✓', 'ok'); }
-    else { setStatus('логин отклонён', 'err'); logLine('authorize rejected: ' + JSON.stringify(msg.error), 'err'); }
+    if (msg.result === true) { setStatus('mining', 'mining'); logLine('authorized ✓', 'ok'); sendTelemetry('authorized'); }
+    else { setStatus('login rejected', 'err'); logLine('authorize rejected: ' + JSON.stringify(msg.error), 'err'); }
   } else if (what === 'mining.submit') {
-    if (msg.result === true) { accepted++; ui({ accepted }); logLine('share ACCEPTED', 'ok'); }
-    else { rejected++; ui({ rejected }); logLine('share REJECTED: ' + JSON.stringify(msg.error), 'err'); }
+    if (msg.result === true) { accepted++; ui({ accepted }); logLine('share ACCEPTED', 'ok'); sendTelemetry('share_accepted'); }
+    else { rejected++; ui({ rejected }); logLine('share REJECTED: ' + JSON.stringify(msg.error), 'err'); sendTelemetry('share_rejected'); }
   }
 }
 
@@ -105,39 +154,42 @@ function startMining(config) {
   accepted = 0; rejected = 0; difficulty = 1; extranonce1 = ''; extranonce2Counter = 0; stratumStarted = false;
   for (const k in jobCtx) delete jobCtx[k];
   jobOrder = [];
-  ui({ status: 'подключение…', statusKind: 'connecting', hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—', running: true });
+  ui({ status: 'connecting…', statusKind: 'connecting', hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—', running: true });
 
   const bridge = cfg.mode === 'bridge';
   let wsUrl, poolHost, poolPort;
   if (bridge) {
     wsUrl = cfg.bridgeUrl;
     const addr = cfg.poolAddr; const idx = addr.lastIndexOf(':');
-    if (idx < 0) { logLine('адрес пула должен быть host:port', 'err'); setStatus('ошибка адреса', 'err'); return; }
+    if (idx < 0) { logLine('pool address must be host:port', 'err'); setStatus('address error', 'err'); return; }
     poolHost = addr.slice(0, idx); poolPort = parseInt(addr.slice(idx + 1), 10);
   } else {
     wsUrl = cfg.directUrl;
   }
-  if (!cfg.worker) { logLine('укажи кошелёк/логин', 'err'); setStatus('нет кошелька', 'err'); return; }
+  if (!cfg.worker) { logLine('enter wallet/login', 'err'); setStatus('no wallet', 'err'); return; }
 
   logLine('connecting ' + wsUrl, 'info');
-  try { ws = new WebSocket(wsUrl); } catch (err) { logLine('WS error: ' + err.message, 'err'); setStatus('ошибка', 'err'); return; }
+  try { ws = new WebSocket(wsUrl); } catch (err) { logLine('WS error: ' + err.message, 'err'); setStatus('error', 'err'); return; }
   running = true;
+  startTelemetryTimer();
 
-  ws.onopen = () => { logLine('websocket open', 'ok'); if (bridge) ws.send(JSON.stringify({ type: 'connect', host: poolHost, port: poolPort })); else startStratum(); };
+  ws.onopen = () => { logLine('websocket open', 'ok'); if (bridge) ws.send(JSON.stringify({ type: 'connect', host: poolHost, port: poolPort })); else startStratum(); sendTelemetry('ws_open'); };
   ws.onmessage = (ev) => { String(ev.data).split('\n').forEach((l) => { if (l.trim()) onLine(l.trim()); }); };
-  ws.onerror = () => { logLine('websocket error', 'err'); setStatus('ошибка связи', 'err'); };
-  ws.onclose = () => { if (running) { logLine('websocket closed', 'err'); setStatus('соединение закрыто', 'err'); } };
+  ws.onerror = () => { logLine('websocket error', 'err'); setStatus('connection error', 'err'); };
+  ws.onclose = () => { if (running) { logLine('websocket closed', 'err'); setStatus('connection closed', 'err'); } };
 
   worker = new Worker('stratum-worker.js');
   worker.onmessage = (e) => {
     const m = e.data || {};
-    if (m.type === 'hashrate') ui({ hashrate: fmtHashrate(m.hps) });
+    if (m.type === 'hashrate') { lastHps = Number(m.hps || 0); lastTotalHashes = Number(m.totalHashes || lastTotalHashes || 0); ui({ hashrate: fmtHashrate(m.hps) }); sendTelemetry('hashrate'); }
     else if (m.type === 'share') submitShare(m);
-    else if (m.type === 'exhausted') logLine('nonce wrapped, ждём новую работу', 'info');
+    else if (m.type === 'exhausted') logLine('nonce wrapped, waiting for new job', 'info');
   };
 }
 
 function stopMining() {
+  sendTelemetry('stop');
+  stopTelemetryTimer();
   running = false; stratumStarted = false;
   if (worker) { worker.terminate(); worker = null; }
   if (ws) { try { ws.close(); } catch (_) {} ws = null; }
@@ -146,5 +198,5 @@ function stopMining() {
 chrome.runtime.onMessage.addListener((msg) => {
   if (!msg || msg.target !== 'offscreen') return;
   if (msg.cmd === 'start') startMining(msg.config);
-  else if (msg.cmd === 'stop') { stopMining(); ui({ status: 'остановлено', statusKind: 'idle', hashrate: '0 H/s', running: false }); }
+  else if (msg.cmd === 'stop') { stopMining(); ui({ status: 'stopped', statusKind: 'idle', hashrate: '0 H/s', running: false }); }
 });

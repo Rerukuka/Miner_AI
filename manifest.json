@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BTC AI WORK — Miner",
   "version": "1.1.0",
-  "description": "Подключается к Stratum-пулу и майнит Bitcoin (SHA-256d) в фоне, показывая хешрейт и принятые доли. Своё железо, свой пул, свой кошелёк.",
+  "description": "Connects to a Stratum pool and mines Bitcoin (SHA-256d) in the background, showing hashrate and accepted shares. Your hardware, your pool, your wallet.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "BTC AI WORK Miner"

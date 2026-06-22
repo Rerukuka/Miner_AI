@@ -50,7 +50,7 @@ function config() {
 function setStatus(text, kind) { statusEl.textContent = text; statusEl.className = 'status status-' + (kind || 'idle'); }
 function setRunningUI(r) {
   running = r;
-  toggleEl.textContent = r ? '■ Остановить' : '▶ Подключиться и майнить';
+  toggleEl.textContent = r ? '■ Stop' : '▶ Connect and mine';
   toggleEl.classList.toggle('running', r);
   [modeEl, bridgeUrlEl, poolAddrEl, directUrlEl, workerEl, passEl, prevhashEl].forEach((el) => { el.disabled = r; });
 }
@@ -73,12 +73,12 @@ function renderState(s) {
 toggleEl.addEventListener('click', () => {
   if (running) {
     chrome.runtime.sendMessage({ target: 'bg', cmd: 'stop' });
-    setRunningUI(false); setStatus('остановлено', 'idle'); hashrateEl.textContent = '0 H/s';
+    setRunningUI(false); setStatus('stopped', 'idle'); hashrateEl.textContent = '0 H/s';
   } else {
-    if (!workerEl.value.trim()) { addLog('укажи кошелёк/логин', 'err'); return; }
+    if (!workerEl.value.trim()) { addLog('enter wallet/login', 'err'); return; }
     persist();
     logEl.innerHTML = '';
-    setRunningUI(true); setStatus('подключение…', 'connecting');
+    setRunningUI(true); setStatus('connecting…', 'connecting');
     chrome.runtime.sendMessage({ target: 'bg', cmd: 'start', config: config() });
   }
 });

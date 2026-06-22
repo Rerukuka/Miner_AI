@@ -119,7 +119,7 @@ details.adv .adv-body { display: flex; flex-direction: column; gap: 10px; paddin
   list-style: none; margin: 0; padding: 0; max-height: 150px; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--border); border-radius: 11px;
 }
-.log:empty::after { content: "лог появится после запуска"; display: block; padding: 11px; color: #475569; font-size: 11px; }
+.log:empty::after { content: "log will appear after start"; display: block; padding: 11px; color: #475569; font-size: 11px; }
 .log li { font-family: var(--mono); font-size: 10.5px; line-height: 1.5; padding: 5px 10px; border-bottom: 1px solid var(--border); word-break: break-all; }
 .log li:last-child { border-bottom: none; }
 .log-sent { color: var(--sky); }

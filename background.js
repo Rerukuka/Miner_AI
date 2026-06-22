@@ -4,7 +4,7 @@
 // recent log, and routes messages between popup and offscreen.
 
 let state = {
-  running: false, status: 'остановлено', statusKind: 'idle',
+  running: false, status: 'stopped', statusKind: 'idle',
   hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—'
 };
 let logRing = [];
@@ -25,7 +25,7 @@ async function ensureOffscreen() {
   await chrome.offscreen.createDocument({
     url: 'offscreen.html',
     reasons: ['WORKERS'],
-    justification: 'Фоновое соединение с пулом и хеширование SHA-256d.'
+    justification: 'Background pool connection and SHA-256d hashing.'
   });
 }
 
@@ -39,7 +39,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.target === 'bg') {
     if (msg.cmd === 'start') {
       logRing = [];
-      state = { running: true, status: 'подключение…', statusKind: 'connecting', hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—' };
+      state = { running: true, status: 'connecting…', statusKind: 'connecting', hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—' };
       (async () => {
         await ensureOffscreen();
         chrome.runtime.sendMessage({ target: 'offscreen', cmd: 'start', config: msg.config });
@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg.cmd === 'stop') {
-      state.running = false; state.status = 'остановлено'; state.statusKind = 'idle'; state.hashrate = '0 H/s';
+      state.running = false; state.status = 'stopped'; state.statusKind = 'idle'; state.hashrate = '0 H/s';
       chrome.runtime.sendMessage({ target: 'offscreen', cmd: 'stop' });
       closeOffscreen();
       return;
