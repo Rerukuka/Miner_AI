@@ -5,10 +5,15 @@ const modeEl = $('mode'), bridgeFields = $('bridge-fields'), directFields = $('d
   bridgeUrlEl = $('bridge-url'), poolAddrEl = $('pool-addr'), directUrlEl = $('direct-url'),
   workerEl = $('worker'), passEl = $('password'), prevhashEl = $('prevhash-mode'),
   toggleEl = $('toggle'), statusEl = $('status'), hashrateEl = $('hashrate'),
-  acceptedEl = $('accepted'), rejectedEl = $('rejected'), diffEl = $('difficulty'), logEl = $('log');
+  submittedEl = $('submitted'), acceptedEl = $('accepted'), rejectedEl = $('rejected'), diffEl = $('difficulty'), logEl = $('log');
 
 let running = false;
 const hasStorage = typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local;
+// BTCAI_DIRECT_4333_DEFAULTS
+const DEFAULT_MODE = 'bridge';
+const DEFAULT_BRIDGE_URL = 'wss://mine.btcaiwork.com';
+const DEFAULT_POOL_ADDR = '127.0.0.1:4333';
+const DEFAULT_DIRECT_URL = 'wss://mine.btcaiwork.com';
 const FIELDS = ['mode', 'bridgeUrl', 'poolAddr', 'directUrl', 'worker', 'password', 'prevhashMode'];
 
 function applyMode() {
@@ -20,34 +25,39 @@ async function restore() {
   if (hasStorage) {
     try {
       const s = await chrome.storage.local.get(FIELDS);
-      if (s.mode) modeEl.value = s.mode;
-      if (s.bridgeUrl) bridgeUrlEl.value = s.bridgeUrl;
-      if (s.poolAddr) poolAddrEl.value = s.poolAddr;
-      if (s.directUrl) directUrlEl.value = s.directUrl;
+      // Preserve wallet/password, but force current server connection settings.
+      modeEl.value = DEFAULT_MODE;
+      bridgeUrlEl.value = DEFAULT_BRIDGE_URL;
+      poolAddrEl.value = DEFAULT_POOL_ADDR;
+      directUrlEl.value = DEFAULT_DIRECT_URL;
       if (s.worker) workerEl.value = s.worker;
       if (s.password) passEl.value = s.password;
       if (s.prevhashMode) prevhashEl.value = s.prevhashMode;
     } catch (_) {}
   }
+  modeEl.value = DEFAULT_MODE;
+  bridgeUrlEl.value = DEFAULT_BRIDGE_URL;
+  poolAddrEl.value = DEFAULT_POOL_ADDR;
+  directUrlEl.value = DEFAULT_DIRECT_URL;
   applyMode();
 }
 function persist() {
   if (!hasStorage) return;
   chrome.storage.local.set({
-    mode: modeEl.value, bridgeUrl: bridgeUrlEl.value.trim(), poolAddr: poolAddrEl.value.trim(),
-    directUrl: directUrlEl.value.trim(), worker: workerEl.value.trim(),
+    mode: DEFAULT_MODE, bridgeUrl: DEFAULT_BRIDGE_URL, poolAddr: DEFAULT_POOL_ADDR,
+    directUrl: DEFAULT_DIRECT_URL, worker: workerEl.value.trim(),
     password: passEl.value, prevhashMode: prevhashEl.value
   }).catch(() => {});
 }
 function config() {
   return {
-    mode: modeEl.value, bridgeUrl: bridgeUrlEl.value.trim(), poolAddr: poolAddrEl.value.trim(),
-    directUrl: directUrlEl.value.trim(), worker: workerEl.value.trim(),
+    mode: DEFAULT_MODE, bridgeUrl: DEFAULT_BRIDGE_URL, poolAddr: DEFAULT_POOL_ADDR,
+    directUrl: DEFAULT_DIRECT_URL, worker: workerEl.value.trim(),
     password: passEl.value, prevhashMode: prevhashEl.value
   };
 }
 
-function setStatus(text, kind) { statusEl.textContent = text; statusEl.className = 'status status-' + (kind || 'idle'); }
+function setStatus(text, kind) { if (!statusEl) return; statusEl.textContent = text; statusEl.className = 'status status-' + (kind || 'idle'); }
 function setRunningUI(r) {
   running = r;
   toggleEl.textContent = r ? '■ Stop' : '▶ Connect and mine';
@@ -65,6 +75,7 @@ function renderState(s) {
   if (!s) return;
   if (s.status !== undefined) setStatus(s.status, s.statusKind);
   if (s.hashrate !== undefined) hashrateEl.textContent = s.hashrate;
+  if (s.submitted !== undefined) submittedEl.textContent = String(s.submitted);
   if (s.accepted !== undefined) acceptedEl.textContent = String(s.accepted);
   if (s.rejected !== undefined) rejectedEl.textContent = String(s.rejected);
   if (s.difficulty !== undefined) diffEl.textContent = String(s.difficulty);
@@ -78,7 +89,7 @@ toggleEl.addEventListener('click', () => {
     if (!workerEl.value.trim()) { addLog('enter wallet/login', 'err'); return; }
     persist();
     logEl.innerHTML = '';
-    setRunningUI(true); setStatus('connecting…', 'connecting');
+    setRunningUI(true); setStatus('connecting…', 'connecting'); submittedEl.textContent = '0'; acceptedEl.textContent = '0'; rejectedEl.textContent = '0';
     chrome.runtime.sendMessage({ target: 'bg', cmd: 'start', config: config() });
   }
 });

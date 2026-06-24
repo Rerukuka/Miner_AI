@@ -5,7 +5,7 @@
 
 let state = {
   running: false, status: 'stopped', statusKind: 'idle',
-  hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—'
+  hashrate: '0 H/s', submitted: 0, accepted: 0, rejected: 0, difficulty: '—'
 };
 let logRing = [];
 const MAX_LOG = 80;
@@ -39,7 +39,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.target === 'bg') {
     if (msg.cmd === 'start') {
       logRing = [];
-      state = { running: true, status: 'connecting…', statusKind: 'connecting', hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—' };
+      state = { running: true, status: 'connecting…', statusKind: 'connecting', hashrate: '0 H/s', submitted: 0, accepted: 0, rejected: 0, difficulty: '—' };
       (async () => {
         await ensureOffscreen();
         chrome.runtime.sendMessage({ target: 'offscreen', cmd: 'start', config: msg.config });

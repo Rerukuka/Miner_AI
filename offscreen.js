@@ -8,7 +8,7 @@ const pending = {};
 let extranonce1 = '', extranonce2Size = 4, extranonce2Counter = 0, difficulty = 1;
 const jobCtx = {};
 let jobOrder = [];
-let accepted = 0, rejected = 0;
+let submitted = 0, accepted = 0, rejected = 0;
 let stratumStarted = false;
 let cfg = null;
 
@@ -52,6 +52,7 @@ function sendTelemetry(reason) {
       reported_hashrate_hs: Math.round(hps),
       hashrate_display: fmtHashrate(hps),
       reported_hashrate: fmtHashrate(hps),
+      submitted,
       accepted,
       rejected,
       total_hashes: lastTotalHashes,
@@ -183,8 +184,11 @@ function handleNotify(params) {
 function submitShare(share) {
   const ctx = jobCtx[share.jobId];
   if (!ctx) { logLine('stale share for ' + share.jobId, 'info'); return; }
+  submitted++;
+  ui({ submitted });
   send('mining.submit', [cfg.worker, share.jobId, ctx.extranonce2, ctx.ntime, share.nonceHex]);
-  logLine('found share ' + share.hashHex.slice(0, 24) + '…', 'ok');
+  logLine('submitted share ' + share.hashHex.slice(0, 24) + '…', 'ok');
+  sendTelemetry('share_submitted');
 }
 
 function onLine(line) {
@@ -199,6 +203,12 @@ function onLine(line) {
   }
 
   logLine('← ' + line, 'recv');
+
+  // BTCAI_IGNORE_EMPTY_ID_METHOD_NOT_FOUND
+  if ((msg.id === '' || msg.id === null || msg.id === undefined) && msg.error && String(msg.error).toLowerCase().includes('method not found')) {
+    logLine('ignored pool warning: method not found for non-Stratum helper message', 'info');
+    return;
+  }
 
   if (msg.method) {
     if (msg.method === 'mining.notify') handleNotify(msg.params);
@@ -227,11 +237,11 @@ function onLine(line) {
 function startMining(config) {
   stopMining();
   cfg = config;
-  accepted = 0; rejected = 0; difficulty = 1; extranonce1 = ''; extranonce2Counter = 0; stratumStarted = false;
+  submitted = 0; accepted = 0; rejected = 0; difficulty = 1; extranonce1 = ''; extranonce2Counter = 0; stratumStarted = false;
   currentJobMessage = null; workerRates = {}; workerTotals = {}; lastHps = 0; lastTotalHashes = 0; lastTelemetryHashrateSent = 0;
   for (const k in jobCtx) delete jobCtx[k];
   jobOrder = [];
-  ui({ status: 'connecting…', statusKind: 'connecting', hashrate: '0 H/s', accepted: 0, rejected: 0, difficulty: '—', running: true });
+  ui({ status: 'connecting…', statusKind: 'connecting', hashrate: '0 H/s', submitted: 0, accepted: 0, rejected: 0, difficulty: '—', running: true });
 
   const bridge = cfg.mode === 'bridge';
   let wsUrl, poolHost, poolPort;
@@ -250,10 +260,34 @@ function startMining(config) {
   running = true;
   startTelemetryTimer();
 
-  ws.onopen = () => { logLine('websocket open', 'ok'); if (bridge) ws.send(JSON.stringify({ type: 'connect', host: poolHost, port: poolPort })); else startStratum(); sendTelemetry('ws_open'); };
+  ws.onopen = () => {
+    logLine('websocket open', 'ok');
+    if (bridge) {
+      ws.send(JSON.stringify({ type: 'connect', host: poolHost, port: poolPort }));
+      // BTCAI_DIRECT_4333_AUTOSTART_STRATUM
+      // Some bridge/nginx combinations may not deliver the bridge connected helper line to the popup.
+      // Start Stratum shortly after requesting the bridge connection; startStratum() is guarded against duplicates.
+      setTimeout(() => {
+        if (running && ws && ws.readyState === WebSocket.OPEN) {
+          logLine('bridge mode: starting Stratum after connect request', 'info');
+          startStratum();
+        }
+      }, 700);
+    } else {
+      startStratum();
+    }
+    sendTelemetry('ws_open');
+  };
   ws.onmessage = (ev) => { String(ev.data).split('\n').forEach((l) => { if (l.trim()) onLine(l.trim()); }); };
   ws.onerror = () => { logLine('websocket error', 'err'); setStatus('connection error', 'err'); };
-  ws.onclose = () => { if (running) { logLine('websocket closed', 'err'); setStatus('connection closed', 'err'); } };
+  ws.onclose = (ev) => {
+    if (running) {
+      const code = ev && ev.code ? ev.code : '';
+      const reason = ev && ev.reason ? ev.reason : '';
+      logLine('websocket closed code=' + code + (reason ? ' reason=' + reason : ''), 'err');
+      setStatus('connection closed', 'err');
+    }
+  };
 
   startWorkers();
 }

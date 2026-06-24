@@ -1,13 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "BTC AI WORK — Miner",
-  "version": "1.1.0",
-  "description": "Connects to a Stratum pool and mines Bitcoin (SHA-256d) in the background, showing hashrate and accepted shares. Your hardware, your pool, your wallet.",
+  "name": "BTC AI WORK \u2014 Miner",
+  "version": "1.1.3",
+  "description": "BTC AI WORK browser miner direct bridge autostart for wss://mine.btcaiwork.com -> ckpool 4333.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "BTC AI WORK Miner"
   },
-  "background": { "service_worker": "background.js" },
-  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
-  "permissions": ["storage", "offscreen"]
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "offscreen"
+  ]
 }

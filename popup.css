@@ -106,9 +106,9 @@ details.adv .adv-body { display: flex; flex-direction: column; gap: 10px; paddin
   background-clip: text; -webkit-text-fill-color: transparent;
 }
 .hashrate-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
-.stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .stat { text-align: center; background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 4px; }
-.stat-value { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+.stat-value { font-family: var(--mono); font-size: 14px; font-weight: 700; }
 .stat-value.ok { color: var(--green); }
 .stat-value.bad { color: var(--red); }
 .stat-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
@@ -135,3 +135,13 @@ details.adv .adv-body { display: flex; flex-direction: column; gap: 10px; paddin
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
 @media (prefers-reduced-motion: reduce) { .btn, details.adv > summary::before { transition: none; } }
+
+
+/* BTCAI UI cleanup: hide stopped / connecting / mining status pill */
+#status,
+.status {
+  display: none !important;
+}
+
+/* Submitted share counter */
+.stat-value.sent { color: var(--sky); }
